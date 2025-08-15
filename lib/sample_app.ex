@@ -9,17 +9,27 @@ defmodule SampleApp do
   # Pin map 
   # ─────────────────────────────────────────────────────────────────────────────
 
-  # Shared SPI bus
-  # D8  → GPIO7
-  @pin_spi_sclk 7
-  # D9  → GPIO8
-  @pin_spi_miso 8
-  # D10 → GPIO9
-  @pin_spi_mosi 9
+  @spi_config [
+    bus_config: [
+      # D8  → GPIO7
+      sclk: 7,
+      # D9  → GPIO8
+      miso: 8,
+      # D10 → GPIO9
+      mosi: 9
+    ],
+    device_config: [
+      spi_dev_tft: [
+        # D6/TX → GPIO43
+        cs: 43,
+        mode: 0,
+        clock_speed_hz: 20_000_000,
+        command_len_bits: 0,
+        address_len_bits: 0
+      ]
+    ]
+  ]
 
-  # Display control lines
-  # D6/TX → GPIO43
-  @pin_tft_cs 43
   # D2    → GPIO3
   @pin_tft_dc 3
   # D1    → GPIO2
@@ -30,12 +40,6 @@ defmodule SampleApp do
   # Touch controller (keep inactive)
   # D7 → GPIO44  (hold HIGH)
   @pin_touch_cs 44
-
-  # SPI device name seen by AtomVM driver
-  @spi_dev :tft
-
-  # SPI timing 
-  @spi_clock_hz 20_000_000
 
   # Chunk size: small, DMA-friendly on ESP32-S3 (RGB666 → 3 bytes/pixel) 
   # 128 px × 3 bytes = 384 bytes/transfer 
@@ -70,27 +74,7 @@ defmodule SampleApp do
     :io.format(~c"ILI9488 / RGB666 bring-up~n", [])
 
     # Open SPI (note: :spi.open/1 returns a PID, not {:ok, pid})
-    spi =
-      :spi.open([
-        {:bus_config,
-         [
-           {:miso, @pin_spi_miso},
-           {:mosi, @pin_spi_mosi},
-           {:sclk, @pin_spi_sclk}
-         ]},
-        {:device_config,
-         [
-           {@spi_dev,
-            [
-              {:cs, @pin_tft_cs},
-              {:mode, 0},
-              {:clock_speed_hz, @spi_clock_hz},
-              # We toggle DC ourselves; no special phases:
-              {:command_len_bits, 0},
-              {:address_len_bits, 0}
-            ]}
-         ]}
-      ])
+    spi = :spi.open(@spi_config)
 
     :io.format(~c"SPI opened: ~p~n", [spi])
 
@@ -152,7 +136,7 @@ defmodule SampleApp do
       end
 
     :gpio.digital_write(@pin_tft_dc, if(kind == :data, do: :high, else: :low))
-    :spi.write(spi, @spi_dev, %{write_data: bin, write_bits: byte_size(bin) * 8})
+    :spi.write(spi, :spi_dev_tft, %{write_data: bin, write_bits: byte_size(bin) * 8})
   end
 
   defp cmd(spi, bytes), do: spi_send(spi, bytes, :cmd)
@@ -164,7 +148,7 @@ defmodule SampleApp do
 
     Enum.each(chunks, fn ch ->
       bin = if is_binary(ch), do: ch, else: IO.iodata_to_binary(ch)
-      :spi.write(spi, @spi_dev, %{write_data: bin, write_bits: byte_size(bin) * 8})
+      :spi.write(spi, :spi_dev_tft, %{write_data: bin, write_bits: byte_size(bin) * 8})
     end)
   end
 
