@@ -124,6 +124,14 @@ defmodule SampleApp.TFT do
     :ok
   end
 
+  @doc """
+  Safely write a large binary to the TFT by splitting into chunks
+  (<= `max_chunk_bytes/0`) and streaming over SPI.
+  """
+  def spi_write_chunks(spi, bin) when is_binary(bin) do
+    write_loop(spi, bin, @max_chunk_bytes)
+  end
+
   # ── Low-level ────────────────────────────────────────────────────────────────
 
   defp send_command(spi, byte) when is_integer(byte) and byte in 0..255 do
@@ -146,5 +154,21 @@ defmodule SampleApp.TFT do
     Process.sleep(80)
     :gpio.digital_write(@pin_rst, :high)
     Process.sleep(150)
+  end
+
+  defp write_loop(_spi, <<>>, _max), do: :ok
+
+  defp write_loop(spi, bin, max) do
+    size = byte_size(bin)
+
+    if size <= max do
+      :ok = :spi.write(spi, @spi_dev, %{write_data: bin})
+      :ok
+    else
+      head = :binary.part(bin, 0, max)
+      tail = :binary.part(bin, max, size - max)
+      :ok = :spi.write(spi, @spi_dev, %{write_data: head})
+      write_loop(spi, tail, max)
+    end
   end
 end

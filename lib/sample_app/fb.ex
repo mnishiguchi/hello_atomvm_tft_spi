@@ -74,8 +74,7 @@ defmodule SampleApp.FB do
   def push(spi, %__MODULE__{w: w, h: h, rows: rows}, {sx, sy}) do
     TFT.set_window(spi, {sx, sy}, {sx + w - 1, sy + h - 1})
     TFT.begin_ram_write(spi)
-    dev = TFT.spi_device()
-    for row_bin <- rows, do: :ok = :spi.write(spi, dev, %{write_data: row_bin})
+    for row_bin <- rows, do: TFT.spi_write_chunks(spi, row_bin)
     :ok
   end
 end

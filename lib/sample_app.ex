@@ -7,10 +7,12 @@ defmodule SampleApp do
     1) Initialize display
     2) Draw quick color bars
     3) Mount /sdcard and list files
-    4) Blit the first .RGB file as 480×320 (auto-detect RGB565 or 3-byte RGB by file size)
+    4) Blit the first .RGB file as panel-size (auto-detect RGB565 or 3-byte RGB by file size)
   """
 
   import Bitwise
+  alias SampleApp.TFT
+  alias SampleApp.SD
 
   # SPI wiring (XIAO: D8→GPIO7, D9→GPIO8, D10→GPIO9; TFT CS on GPIO43)
   @spi_config [
@@ -36,21 +38,6 @@ defmodule SampleApp do
   @sd_driver ~c"sdspi"
   @sd_root ~c"/sdcard"
 
-  # SD read chunk aligned to ~4 KiB and multiple of 12 (3 B/px × 4B)
-  @bytes_per_pixel_rgb666 3
-  @dma_alignment_bytes 4
-  @target_chunk_bytes 4 * 1024
-  # 4092
-  @sd_chunk_bytes @target_chunk_bytes -
-                    rem(@target_chunk_bytes, @bytes_per_pixel_rgb666 * @dma_alignment_bytes)
-
-  # Panel geometry
-  @panel_w 480
-  @panel_h 320
-
-  alias SampleApp.TFT
-  alias SampleApp.SD
-
   def start() do
     :io.format(~c"ILI9488 / RGB666 + SD demo~n")
     spi = :spi.open(@spi_config)
@@ -71,30 +58,31 @@ defmodule SampleApp do
 
         case SD.list_rgb_files(@sd_root) do
           [] ->
-            :io.format(~c"No RAW RGB found (.RGB). Expect 480x320 at SD root.~n")
+            :io.format(~c"No RAW RGB found (.RGB). Expect panel-sized image at SD root.~n")
 
           [first_path | _] ->
-            display_blit_raw_rgb_file(spi, first_path, {@panel_w, @panel_h})
+            display_blit_raw_rgb_file(spi, first_path)
         end
 
       {:error, error} ->
         :io.format(~c"SD mount failed: ~p~n", [error])
     end
 
-    # Start the clock
     {:ok, _clock_pid} = SampleApp.Clock.start_link(spi, h_align: :center, y: 5)
-
-    # ← keep the parent process alive so AtomVM doesn’t exit
     Process.sleep(:infinity)
   end
 
   # One address window + single RAMWR, then stream SD bytes to SPI
-  # Only supports RGB565 (2 B/px) and 3-byte RGB (treated as RGB666/888).
-  defp display_blit_raw_rgb_file(spi, path, {width, height}) do
+  # Supports RGB565 (2 B/px, little-endian) and 3-byte RGB.
+
+  defp display_blit_raw_rgb_file(spi, path) do
+    width = TFT.width()
+    height = TFT.height()
     pixels = width * height
+    chunk = TFT.max_chunk_bytes()
 
     bpp =
-      case SD.file_size(path, @sd_chunk_bytes) do
+      case SD.file_size(path, chunk) do
         {:ok, size} when rem(size, pixels) == 0 -> div(size, pixels)
         _ -> :unknown
       end
@@ -106,16 +94,13 @@ defmodule SampleApp do
 
     case bpp do
       2 ->
-        # RGB565 (assumed little-endian) → expand to 3 bytes/pixel for ILI9488 (18-bit mode)
-        SD.stream_file_chunks(path, @sd_chunk_bytes, fn bin ->
-          :ok =
-            :spi.write(spi, TFT.spi_device(), %{write_data: convert_chunk_rgb565le_to_rgb888(bin)})
+        SD.stream_file_chunks(path, chunk, fn bin ->
+          TFT.spi_write_chunks(spi, convert_chunk_rgb565le_to_rgb888(bin))
         end)
 
       3 ->
-        # 3-byte RGB (RGB666/888) → stream as-is (ILI9488 uses top 6 bits)
-        SD.stream_file_chunks(path, @sd_chunk_bytes, fn bin ->
-          :ok = :spi.write(spi, TFT.spi_device(), %{write_data: bin})
+        SD.stream_file_chunks(path, chunk, fn bin ->
+          TFT.spi_write_chunks(spi, bin)
         end)
 
       _ ->
@@ -128,13 +113,9 @@ defmodule SampleApp do
   end
 
   # Convert a chunk of RGB565 (little-endian) to 3-byte RGB.
-  # For each 16-bit word (lo,hi):
-  #   r5 = bits 11..15, g6 = bits 5..10, b5 = bits 0..4
-  #   r8 = (r5<<3)|(r5>>2), g8 = (g6<<2)|(g6>>4), b8 = (b5<<3)|(b5>>2)
   defp convert_chunk_rgb565le_to_rgb888(bin), do: conv565le(bin, <<>>)
   defp conv565le(<<>>, acc), do: acc
 
-  # Process two bytes at a time; @sd_chunk_bytes is even so we don't need carry-over.
   defp conv565le(<<lo, hi, rest::binary>>, acc) do
     val = bor(lo, bsl(hi, 8))
     r5 = band(bsr(val, 11), 0x1F)

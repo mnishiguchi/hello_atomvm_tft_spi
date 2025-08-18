@@ -179,7 +179,7 @@ defmodule SampleApp.Clock do
         TFT.begin_ram_write(spi)
 
         bin = glyph_bin(glyphs, curr_ch)
-        spi_write_chunks(spi, bin)
+        TFT.spi_write_chunks(spi, bin)
       end
     end
 
@@ -299,31 +299,11 @@ defmodule SampleApp.Clock do
 
   # SPI chunked writes --------------------------------------------------------
 
-  defp push_rows(spi, line, n) when n <= 0, do: :ok
+  defp push_rows(_spi, _line, n) when n <= 0, do: :ok
 
   defp push_rows(spi, line, n) do
-    spi_write_chunks(spi, line)
+    TFT.spi_write_chunks(spi, line)
     push_rows(spi, line, n - 1)
-  end
-
-  defp spi_write_chunks(spi, bin) when is_binary(bin) do
-    write_loop(spi, bin, TFT.max_chunk_bytes())
-  end
-
-  defp write_loop(_spi, <<>>, _max), do: :ok
-
-  defp write_loop(spi, bin, max) do
-    size = byte_size(bin)
-
-    if size <= max do
-      :ok = :spi.write(spi, TFT.spi_device(), %{write_data: bin})
-      :ok
-    else
-      head = :binary.part(bin, 0, max)
-      tail = :binary.part(bin, max, size - max)
-      :ok = :spi.write(spi, TFT.spi_device(), %{write_data: head})
-      write_loop(spi, tail, max)
-    end
   end
 
   defp rgb({r, g, b}), do: <<r, g, b>>
