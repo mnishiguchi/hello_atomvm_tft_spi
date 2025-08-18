@@ -5,7 +5,17 @@ defmodule SampleApp.TFT do
 
   import Bitwise
 
-  # SPI device name (matches key in SampleApp's device_config)
+  # --- Display geometry (exported) --------------------------------------------
+  @screen_w 480
+  @screen_h 320
+  def width(), do: @screen_w
+  def height(), do: @screen_h
+
+  # Maximum safe write size for this host (bytes). 4092 avoids SPI driver error 258.
+  @max_chunk_bytes 4092
+  def max_chunk_bytes(), do: @max_chunk_bytes
+
+  # --- SPI device name ---------------------------------------------------------
   @spi_dev :spi_dev_tft
   def spi_device(), do: @spi_dev
 
@@ -15,7 +25,7 @@ defmodule SampleApp.TFT do
   # D1: RESET
   @pin_rst 2
 
-  # MIPI DCS (subset we use)
+  # MIPI DCS subset
   @cmd_slpout 0x11
   @cmd_noron 0x13
   @cmd_dispon 0x29

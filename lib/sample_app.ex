@@ -77,11 +77,15 @@ defmodule SampleApp do
             display_blit_raw_rgb_file(spi, first_path, {@panel_w, @panel_h})
         end
 
-        Process.sleep(:infinity)
-
-      {:error, _} ->
-        Process.sleep(:infinity)
+      {:error, error} ->
+        :io.format(~c"SD mount failed: ~p~n", [error])
     end
+
+    # Start the clock
+    {:ok, _clock_pid} = SampleApp.Clock.start_link(spi, h_align: :center, y: 5)
+
+    # ← keep the parent process alive so AtomVM doesn’t exit
+    Process.sleep(:infinity)
   end
 
   # One address window + single RAMWR, then stream SD bytes to SPI
