@@ -50,8 +50,8 @@ defmodule SampleApp.SD do
     end
   end
 
-  # Sorted full paths ending with .RGB / .RGB666
-  def list_rgb666_files(base) do
+  # Sorted full paths ending with .RGB (your SD uses .RGB only)
+  def list_rgb_files(base) do
     names = list_entry_names(base)
     matches = :lists.filter(&Util.has_rgb_extension?/1, names)
     paths = :lists.map(&Util.path_join(base, &1), matches)
@@ -72,6 +72,24 @@ defmodule SampleApp.SD do
         {:error, r}
     end
   end
+
+  @doc """
+  Return {:ok, byte_count} for `path` by reading in chunks of `chunk_bytes`.
+  """
+  def file_size(path, chunk_bytes) when is_integer(chunk_bytes) and chunk_bytes > 0 do
+    case :atomvm.posix_open(path, [:o_rdonly]) do
+      {:ok, fd} ->
+        size = file_size_loop(fd, chunk_bytes, 0)
+        :atomvm.posix_close(fd)
+        {:ok, size}
+
+      {:error, r} ->
+        :io.format(~c"open failed: ~p~n", [r])
+        {:error, r}
+    end
+  end
+
+  # ── Private helpers ──────────────────────────────────────────────────────────
 
   defp print_directory_entries(dir) do
     case :atomvm.posix_readdir(dir) do
@@ -133,6 +151,22 @@ defmodule SampleApp.SD do
 
       _ ->
         {:ok, acc}
+    end
+  end
+
+  defp file_size_loop(fd, chunk_bytes, acc) do
+    case :atomvm.posix_read(fd, chunk_bytes) do
+      {:ok, bin} when is_binary(bin) and bin != <<>> ->
+        file_size_loop(fd, chunk_bytes, acc + byte_size(bin))
+
+      :eof ->
+        acc
+
+      {:error, _} ->
+        acc
+
+      _ ->
+        acc
     end
   end
 end
