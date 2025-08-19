@@ -10,9 +10,9 @@ defmodule SampleApp do
     4) Blit the first .RGB file as panel-size (auto-detect RGB565 or 3-byte RGB by file size)
   """
 
-  import Bitwise
   alias SampleApp.TFT
   alias SampleApp.SD
+  alias SampleApp.Image
 
   # SPI wiring (XIAO: D8→GPIO7, D9→GPIO8, D10→GPIO9; TFT CS on GPIO43)
   @spi_config [
@@ -74,7 +74,6 @@ defmodule SampleApp do
 
   # One address window + single RAMWR, then stream SD bytes to SPI
   # Supports RGB565 (2 B/px, little-endian) and 3-byte RGB.
-
   defp display_blit_raw_rgb_file(spi, path) do
     width = TFT.width()
     height = TFT.height()
@@ -83,7 +82,7 @@ defmodule SampleApp do
 
     bpp =
       case SD.file_size(path, chunk) do
-        {:ok, size} when rem(size, pixels) == 0 -> div(size, pixels)
+        {:ok, size} -> Image.bpp_from_size(size, pixels)
         _ -> :unknown
       end
 
@@ -94,11 +93,13 @@ defmodule SampleApp do
 
     case bpp do
       2 ->
+        # RGB565 (little-endian) → expand to 3 bytes/pixel for ILI9488 (18-bit mode)
         SD.stream_file_chunks(path, chunk, fn bin ->
-          TFT.spi_write_chunks(spi, convert_chunk_rgb565le_to_rgb888(bin))
+          TFT.spi_write_chunks(spi, Image.rgb565le_to_rgb888_chunk(bin))
         end)
 
       3 ->
+        # 3-byte RGB (RGB666/888) → stream as-is (ILI9488 uses top 6 bits)
         SD.stream_file_chunks(path, chunk, fn bin ->
           TFT.spi_write_chunks(spi, bin)
         end)
@@ -110,22 +111,5 @@ defmodule SampleApp do
     end
 
     :io.format(~c"Blit done.~n")
-  end
-
-  # Convert a chunk of RGB565 (little-endian) to 3-byte RGB.
-  defp convert_chunk_rgb565le_to_rgb888(bin), do: conv565le(bin, <<>>)
-  defp conv565le(<<>>, acc), do: acc
-
-  defp conv565le(<<lo, hi, rest::binary>>, acc) do
-    val = bor(lo, bsl(hi, 8))
-    r5 = band(bsr(val, 11), 0x1F)
-    g6 = band(bsr(val, 5), 0x3F)
-    b5 = band(val, 0x1F)
-
-    r8 = bor(bsl(r5, 3), bsr(r5, 2))
-    g8 = bor(bsl(g6, 2), bsr(g6, 4))
-    b8 = bor(bsl(b5, 3), bsr(b5, 2))
-
-    conv565le(rest, <<acc::binary, r8, g8, b8>>)
   end
 end
