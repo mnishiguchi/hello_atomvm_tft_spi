@@ -143,7 +143,10 @@ defmodule SampleApp.Clock do
     sw = TFT.width()
     sh = TFT.height()
 
-    total_w = cw * 8 + @gap_x * 9
+    cells = 8
+    gaps_between = @gap_x * (cells - 1)
+    edge_padding = @gap_x * 2
+    total_w = cw * cells + gaps_between + edge_padding
     total_h = ch + @padding_y * 2
 
     ideal_left = x0 - @gap_x

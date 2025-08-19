@@ -61,7 +61,7 @@ defmodule SampleApp do
             :io.format(~c"No RAW RGB found (.RGB). Expect panel-sized image at SD root.~n")
 
           [first_path | _] ->
-            display_blit_raw_rgb_file(spi, first_path)
+            blit_fullscreen_raw_rgb(spi, first_path)
         end
 
       {:error, error} ->
@@ -74,7 +74,7 @@ defmodule SampleApp do
 
   # One address window + single RAMWR, then stream SD bytes to SPI
   # Supports RGB565 (2 B/px, little-endian) and 3-byte RGB.
-  defp display_blit_raw_rgb_file(spi, path) do
+  defp blit_fullscreen_raw_rgb(spi, path) do
     width = TFT.width()
     height = TFT.height()
     pixels = width * height

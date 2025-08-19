@@ -132,6 +132,16 @@ defmodule SampleApp.TFT do
     write_loop(spi, bin, @max_chunk_bytes)
   end
 
+  def clear_screen(spi, {r, g, b}) do
+    w = width()
+    h = height()
+    set_window(spi, {0, 0}, {w - 1, h - 1})
+    begin_ram_write(spi)
+    line = :binary.copy(<<r, g, b>>, w)
+    for _ <- 1..h, do: spi_write_chunks(spi, line)
+    :ok
+  end
+
   # ── Low-level ────────────────────────────────────────────────────────────────
 
   defp send_command(spi, byte) when is_integer(byte) and byte in 0..255 do
