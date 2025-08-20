@@ -49,19 +49,46 @@ defmodule SampleApp.TFT do
   @spi_chunk_bytes @target - rem(@target, @bpp * @dma_align)
   @spi_chunk_px div(@spi_chunk_bytes, @bpp)
 
-  # --- Simple process-based mutex for multi-step TFT ops ----------------------
+  # --- Re-entrant process-based mutex for multi-step TFT ops -------------------
   @lock_name :tft_lock
+  @lock_depth_key :tft_lock_depth
 
+  @doc """
+  Run `fun` while holding a global TFT lock.
+
+  - Re-entrant for the *same* process via a per-process depth counter.
+  - Only the outermost call acquires/releases the global name.
+  """
   def with_lock(fun) when is_function(fun, 0) do
-    lock()
+    depth = get_depth()
+
+    if depth == 0, do: lock()
+    put_depth(depth + 1)
 
     try do
       fun.()
     after
-      unlock()
+      nd = get_depth() - 1
+      nd2 = if nd < 0, do: 0, else: nd
+      put_depth(nd2)
+      if nd2 == 0, do: unlock()
     end
   end
 
+  # Safely read/write per-process depth (normalize :undefined)
+  defp get_depth() do
+    case :erlang.get(@lock_depth_key) do
+      :undefined -> 0
+      n when is_integer(n) -> n
+      _ -> 0
+    end
+  end
+
+  defp put_depth(n) when is_integer(n) and n >= 0 do
+    :erlang.put(@lock_depth_key, n)
+  end
+
+  # Acquire the global lock (blocking spin with tiny sleep).
   defp lock() do
     try do
       :erlang.register(@lock_name, self())
@@ -73,6 +100,7 @@ defmodule SampleApp.TFT do
     end
   end
 
+  # Release the global lock *only* if we own it.
   defp unlock() do
     case :erlang.whereis(@lock_name) do
       pid when pid == self() -> _ = :erlang.unregister(@lock_name)
