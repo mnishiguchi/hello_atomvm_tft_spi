@@ -144,8 +144,10 @@ defmodule SampleApp.TFT do
     :ok
   end
 
+  @doc "Mask RGB888 to panel's RGB666 (each channel rounded down to multiples of 4)."
   def rgb888_to_rgb666(r8, g8, b8), do: {r8 &&& 0xFC, g8 &&& 0xFC, b8 &&& 0xFC}
 
+  @doc "Fill a rectangle with a solid RGB666-ish color (RGB888 on wire)."
   def fill_rect_rgb666(spi, {x, y}, {w, h}, {r, g, b}) do
     with_lock(fn ->
       set_window(spi, {x, y}, {x + w - 1, y + h - 1})
@@ -182,9 +184,18 @@ defmodule SampleApp.TFT do
     :ok
   end
 
+  @doc "Stream a binary to the display in chunks (<= @max_chunk_bytes)."
   def spi_write_chunks(spi, bin) when is_binary(bin) do
     write_loop(spi, bin, @max_chunk_bytes)
   end
+
+  @doc "Write the same row binary `rows` times."
+  def repeat_rows(spi, row_bin, rows) when is_integer(rows) and rows > 0 do
+    for _ <- 1..rows, do: spi_write_chunks(spi, row_bin)
+    :ok
+  end
+
+  def repeat_rows(_spi, _row_bin, _rows), do: :ok
 
   def clear_screen(spi, {r, g, b}) do
     with_lock(fn ->
@@ -193,7 +204,7 @@ defmodule SampleApp.TFT do
       set_window(spi, {0, 0}, {w - 1, h - 1})
       begin_ram_write(spi)
       line = :binary.copy(<<r, g, b>>, w)
-      for _ <- 1..h, do: spi_write_chunks(spi, line)
+      repeat_rows(spi, line, h)
       :ok
     end)
   end

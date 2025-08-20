@@ -40,13 +40,13 @@ defmodule SampleApp.Touch do
   @invert_x true
   @invert_y true
 
-  # Cursor (dot) colors
-  @cursor_fg {0xFC, 0xFC, 0x00}
-  @cursor_bg {0x00, 0xFC, 0xFC}
+  # Canonical color form: prepacked binaries
+  @cursor_fg_bin <<0xFC, 0xFC, 0x00>>
+  @cursor_bg_bin <<0x00, 0xFC, 0xFC>>
 
-  # Base UI colors for OSD background/foreground
-  @bg {0x10, 0x10, 0x10}
-  @fg {0xF8, 0xF8, 0xF8}
+  # Base UI colors for OSD background/foreground (prepacked)
+  @osd_bg_bin <<0x10, 0x10, 0x10>>
+  @osd_fg_bin <<0xF8, 0xF8, 0xF8>>
 
   # Dot geometry
   @cursor_r 3
@@ -64,8 +64,6 @@ defmodule SampleApp.Touch do
   @osd_scale_y 3
   @osd_gap 2
   @osd_margin 4
-  @osd_bg @bg
-  @osd_fg @fg
 
   # — Public API —
 
@@ -246,14 +244,22 @@ defmodule SampleApp.Touch do
     # draw cyan over the old dot
     maybe_clear_cursor(spi, prev)
     # draw yellow at the new position
-    draw_box(spi, x, y, @cursor_fg)
+    draw_box(spi, x, y, @cursor_fg_bin)
     :ok
   end
 
   defp maybe_clear_cursor(_spi, nil), do: :ok
-  defp maybe_clear_cursor(spi, {x, y}), do: draw_box(spi, x, y, @cursor_bg)
+  defp maybe_clear_cursor(spi, {x, y}), do: draw_box(spi, x, y, @cursor_bg_bin)
 
-  defp draw_box(spi, x, y, {r, g, b}) do
+  # Accept either prepacked <<r,g,b>> or tuple {r,g,b}; normalize to binary
+  defp draw_box(spi, x, y, color) when is_tuple(color) do
+    case color do
+      {r, g, b} -> draw_box(spi, x, y, <<r, g, b>>)
+      _ -> :ok
+    end
+  end
+
+  defp draw_box(spi, x, y, color_bin) when is_binary(color_bin) do
     rads = @cursor_r
     w = TFT.width()
     h = TFT.height()
@@ -269,8 +275,8 @@ defmodule SampleApp.Touch do
     TFT.with_lock(fn ->
       TFT.set_window(spi, {x0, y0}, {x1, y1})
       TFT.begin_ram_write(spi)
-      row = :binary.copy(<<r, g, b>>, bw)
-      for _ <- 1..bh, do: TFT.spi_write_chunks(spi, row)
+      row = :binary.copy(color_bin, bw)
+      TFT.repeat_rows(spi, row, bh)
     end)
   end
 
@@ -375,7 +381,7 @@ defmodule SampleApp.Touch do
           # Clear the whole fixed bar area
           TFT.set_window(spi, {x0 - 1, y0 - 1}, {x0 + bar_w, y0 + bar_h})
           TFT.begin_ram_write(spi)
-          clear_row = :binary.copy(rgb(@osd_bg), bar_w + 2)
+          clear_row = :binary.copy(@osd_bg_bin, bar_w + 2)
           for _ <- 1..(bar_h + 2), do: TFT.spi_write_chunks(spi, clear_row)
 
           # Draw current text, left-aligned within the bar
@@ -425,8 +431,8 @@ defmodule SampleApp.Touch do
   # Turn a Font.glyph into a scaled RGB cell binary
   defp glyph_cell_bin(ch) do
     {gw, gh, rows} = Font.glyph(ch)
-    on_px = :binary.copy(rgb(@osd_fg), @osd_scale_x)
-    off_px = :binary.copy(rgb(@osd_bg), @osd_scale_x)
+    on_px = :binary.copy(@osd_fg_bin, @osd_scale_x)
+    off_px = :binary.copy(@osd_bg_bin, @osd_scale_x)
     w = gw * @osd_scale_x
     h = gh * @osd_scale_y
 
@@ -457,11 +463,8 @@ defmodule SampleApp.Touch do
     Integer.to_charlist(TFT.width() - 1) ++ [?:] ++ Integer.to_charlist(TFT.height() - 1)
   end
 
-  # and update osd_max_dims/0 to call it:
   defp osd_max_dims() do
     cells = render_text_cells(osd_max_text(), [])
     text_dims(cells)
   end
-
-  defp rgb({r, g, b}), do: <<r, g, b>>
 end

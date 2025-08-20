@@ -41,8 +41,6 @@ defmodule SampleApp do
   ]
 
   # Shared bus chip selects (keep HIGH when idle)
-  # D7  Touch CS (GPIO44)
-  @pin_touch_cs 44
   # D3  SD CS (GPIO4)
   @pin_sd_cs 4
 

@@ -13,8 +13,11 @@ defmodule SampleApp.Clock do
   @gap_x 4
   @padding_y 3
 
+  # Colors (compile-time packed)
   @bg {0x10, 0x10, 0x10}
   @fg {0xF8, 0xF8, 0xF8}
+  @bg_bin <<0x10, 0x10, 0x10>>
+  @fg_bin <<0xF8, 0xF8, 0xF8>>
 
   def start_link(spi, opts \\ []) do
     pid = spawn_link(fn -> init(spi, opts) end)
@@ -157,8 +160,8 @@ defmodule SampleApp.Clock do
     TFT.with_lock(fn ->
       TFT.set_window(spi, {left, top}, {right, bottom})
       TFT.begin_ram_write(spi)
-      line = :binary.copy(rgb(@bg), width_pixels)
-      push_rows(spi, line, rows)
+      line = :binary.copy(@bg_bin, width_pixels)
+      TFT.repeat_rows(spi, line, rows)
     end)
   end
 
@@ -206,17 +209,17 @@ defmodule SampleApp.Clock do
   defp pad2(n), do: Integer.to_string(n)
 
   defp pre_render_glyphs(cell_w, cell_h) do
-    g0 = render_cell_centered(?0, cell_w, cell_h, @fg, @bg)
-    g1 = render_cell_centered(?1, cell_w, cell_h, @fg, @bg)
-    g2 = render_cell_centered(?2, cell_w, cell_h, @fg, @bg)
-    g3 = render_cell_centered(?3, cell_w, cell_h, @fg, @bg)
-    g4 = render_cell_centered(?4, cell_w, cell_h, @fg, @bg)
-    g5 = render_cell_centered(?5, cell_w, cell_h, @fg, @bg)
-    g6 = render_cell_centered(?6, cell_w, cell_h, @fg, @bg)
-    g7 = render_cell_centered(?7, cell_w, cell_h, @fg, @bg)
-    g8 = render_cell_centered(?8, cell_w, cell_h, @fg, @bg)
-    g9 = render_cell_centered(?9, cell_w, cell_h, @fg, @bg)
-    colon = render_cell_centered(?:, cell_w, cell_h, @fg, @bg)
+    g0 = render_cell_centered(?0, cell_w, cell_h)
+    g1 = render_cell_centered(?1, cell_w, cell_h)
+    g2 = render_cell_centered(?2, cell_w, cell_h)
+    g3 = render_cell_centered(?3, cell_w, cell_h)
+    g4 = render_cell_centered(?4, cell_w, cell_h)
+    g5 = render_cell_centered(?5, cell_w, cell_h)
+    g6 = render_cell_centered(?6, cell_w, cell_h)
+    g7 = render_cell_centered(?7, cell_w, cell_h)
+    g8 = render_cell_centered(?8, cell_w, cell_h)
+    g9 = render_cell_centered(?9, cell_w, cell_h)
+    colon = render_cell_centered(?:, cell_w, cell_h)
 
     %{
       ?0 => g0,
@@ -250,10 +253,10 @@ defmodule SampleApp.Clock do
     end
   end
 
-  defp render_cell_centered(ch, cell_w, cell_h, fg, bg) do
+  defp render_cell_centered(ch, cell_w, cell_h) do
     {gw, gh, rows} = Font.glyph(ch)
-    on_px = :binary.copy(rgb(fg), @scale_x)
-    off_px = :binary.copy(rgb(bg), @scale_x)
+    on_px = :binary.copy(@fg_bin, @scale_x)
+    off_px = :binary.copy(@bg_bin, @scale_x)
 
     row_seg = fn bits -> build_row(bits, gw - 1, on_px, off_px, <<>>) end
     glyph_rows = build_rows(rows, row_seg, gh, [])
@@ -262,8 +265,8 @@ defmodule SampleApp.Clock do
     pad_cols = cell_w - glyph_w_px
     left_cols = div(pad_cols, 2)
     right_cols = pad_cols - left_cols
-    left_pad = :binary.copy(rgb(bg), left_cols)
-    right_pad = :binary.copy(rgb(bg), right_cols)
+    left_pad = :binary.copy(@bg_bin, left_cols)
+    right_pad = :binary.copy(@bg_bin, right_cols)
 
     build_cell(glyph_rows, left_pad, right_pad, @scale_y, [])
   end
@@ -291,13 +294,4 @@ defmodule SampleApp.Clock do
     vseg = :binary.copy(full, scale_y)
     build_cell(rest, left_pad, right_pad, scale_y, [vseg | acc])
   end
-
-  defp push_rows(_spi, _line, n) when n <= 0, do: :ok
-
-  defp push_rows(spi, line, n) do
-    TFT.spi_write_chunks(spi, line)
-    push_rows(spi, line, n - 1)
-  end
-
-  defp rgb({r, g, b}), do: <<r, g, b>>
 end
