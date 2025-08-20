@@ -9,7 +9,7 @@ defmodule SampleApp.Util do
   def to_charlist_if_needed(x) when is_binary(x), do: :erlang.binary_to_list(x)
   def to_charlist_if_needed(x), do: x
 
-  @doc "True if name ends with .RGB / .rgb"
+  @doc "True if name ends with .RGB / .rgb (RAW 3-byte/pixel expected)."
   def has_rgb_extension?(name_cs) do
     case :lists.reverse(name_cs) do
       [?B, ?G, ?R, ?. | _] -> true

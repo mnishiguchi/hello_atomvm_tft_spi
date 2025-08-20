@@ -39,7 +39,7 @@ defmodule SampleApp.TFT do
 
   # Orientation + pixel format
   @madctl_landscape_bgr 0x28
-  # 18-bit; still 3 bytes/pixel
+  # 18-bit; still 3 bytes/pixel on the wire (panel uses top 6 bits)
   @pixfmt_rgb666 0x66
 
   # Chunking for solid fills (~4 KiB; multiple of 12 for RGB666 + DMA)

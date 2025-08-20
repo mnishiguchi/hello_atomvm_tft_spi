@@ -1,58 +1,63 @@
 defmodule SampleApp.Image do
   @moduledoc """
-  Image utilities that are safe on AtomVM.
+  AtomVM-safe image utilities.
 
-  Currently provides a fast, allocation-friendly conversion from **RGB565
-  (little-endian)** to **RGB888** (3 bytes per pixel), suitable for sending to
-  the ILI9488 configured in 18-bit (RGB666) mode.
-
-  ## Examples
-
-      iex> SampleApp.Image.rgb565le_to_rgb888_chunk(<<0x1F, 0x00>>)   # 0x001F (blue max)
-      <<0, 0, 255>>
-
-      iex> SampleApp.Image.rgb565le_to_rgb888_chunk(<<0x00, 0xF8>>)   # 0xF800 (red max)
-      <<255, 0, 0>>
-
-      iex> SampleApp.Image.rgb565le_to_rgb888_chunk(<<0xE0, 0x07>>)   # 0x07E0 (green max)
-      <<0, 255, 0>>
+  - Fast chunk conversion: RGB565 **little-endian** → RGB888 (3 bytes/pixel),
+    with selectable source order (:rgb or :bgr) to fix red/blue swaps.
+  - bpp detection from file size.
   """
 
   import Bitwise
 
   @doc """
-  Convert a binary `bin` containing RGB565 **little-endian** pixels
-  (`<<lo,hi, lo,hi, ...>>`) into an RGB888 binary (`<<r,g,b, r,g,b, ...>>`).
-
-  * Ignores a trailing odd byte (should not happen with our chunking).
-  * Pure and reentrant; chunk-friendly for streaming.
+  Back-compat wrapper (assumes :rgb). Prefer `rgb565le_to_rgb888_chunk/2`.
   """
   @spec rgb565le_to_rgb888_chunk(binary()) :: binary()
-  def rgb565le_to_rgb888_chunk(bin), do: conv(bin, <<>>)
+  def rgb565le_to_rgb888_chunk(bin), do: rgb565le_to_rgb888_chunk(bin, :rgb)
+
+  @doc """
+  Convert a binary of RGB565 **little-endian** pixels (`<<lo,hi, lo,hi, ...>>`)
+  into RGB888 (`<<r,g,b, r,g,b, ...>>`).
+
+  `order` is `:rgb` for true RGB565, or `:bgr` when your source uses BGR565
+  (common for BMP-style dumps). Any trailing odd byte is ignored safely.
+  """
+  @spec rgb565le_to_rgb888_chunk(binary(), :rgb | :bgr) :: binary()
+  def rgb565le_to_rgb888_chunk(bin, order), do: conv(bin, <<>>, order)
 
   # Done
-  defp conv(<<>>, acc), do: acc
+  defp conv(<<>>, acc, _order), do: acc
   # Odd trailing byte — ignore safely
-  defp conv(<<_lo>>, acc), do: acc
+  defp conv(<<_lo>>, acc, _order), do: acc
 
   # Hot path: two bytes -> three bytes
-  defp conv(<<lo, hi, rest::binary>>, acc) do
+  defp conv(<<lo, hi, rest::binary>>, acc, order) do
     # 16-bit little-endian value
     val = bor(lo, bsl(hi, 8))
-    # Extract channels
+
+    # Extract channels in RGB565 layout
     r5 = band(bsr(val, 11), 0x1F)
     g6 = band(bsr(val, 5), 0x3F)
     b5 = band(val, 0x1F)
+
     # Expand to 8-bit (bit replication)
     r8 = bor(bsl(r5, 3), bsr(r5, 2))
     g8 = bor(bsl(g6, 2), bsr(g6, 4))
     b8 = bor(bsl(b5, 3), bsr(b5, 2))
-    conv(rest, <<acc::binary, r8, g8, b8>>)
+
+    # Swap R/B if the *source* is BGR565
+    {rr, gg, bb} =
+      case order do
+        :bgr -> {b8, g8, r8}
+        _ -> {r8, g8, b8}
+      end
+
+    conv(rest, <<acc::binary, rr, gg, bb>>, order)
   end
 
   @doc """
   Given a file size (bytes) and pixel count, return `2`, `3`, or `:unknown`.
-  Useful for validating `.RGB` files for 16-bit vs 24-bit payloads.
+  Useful for validating `.RGB` files (16-bit vs 24-bit payloads).
   """
   @spec bpp_from_size(non_neg_integer(), pos_integer()) :: 2 | 3 | :unknown
   def bpp_from_size(size_bytes, pixels) when pixels > 0 do

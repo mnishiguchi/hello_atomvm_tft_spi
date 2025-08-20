@@ -50,7 +50,7 @@ defmodule SampleApp.SD do
     end
   end
 
-  # Sorted full paths ending with .RGB (your SD uses .RGB only)
+  # Sorted full paths ending with .RGB (RAW 3-byte/pixel expected)
   def list_rgb_files(base) do
     names = list_entry_names(base)
     matches = :lists.filter(&Util.has_rgb_extension?/1, names)
