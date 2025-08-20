@@ -11,7 +11,7 @@ defmodule SampleApp.TFT do
   def width(), do: @screen_w
   def height(), do: @screen_h
 
-  # Maximum safe write size for this host (bytes). 4092 avoids SPI driver error 258.
+  # Maximum safe write size (bytes). 4092 avoids SPI driver error 258.
   @max_chunk_bytes 4092
   def max_chunk_bytes(), do: @max_chunk_bytes
 
@@ -39,7 +39,7 @@ defmodule SampleApp.TFT do
 
   # Orientation + pixel format
   @madctl_landscape_bgr 0x28
-  # 18-bit; still 3 bytes/pixel on the wire (panel uses top 6 bits)
+  # 18-bit; 3 bytes/pixel on the wire
   @pixfmt_rgb666 0x66
 
   # Chunking for solid fills (~4 KiB; multiple of 12 for RGB666 + DMA)
@@ -48,6 +48,39 @@ defmodule SampleApp.TFT do
   @target 4 * 1024
   @spi_chunk_bytes @target - rem(@target, @bpp * @dma_align)
   @spi_chunk_px div(@spi_chunk_bytes, @bpp)
+
+  # --- Simple process-based mutex for multi-step TFT ops ----------------------
+  @lock_name :tft_lock
+
+  def with_lock(fun) when is_function(fun, 0) do
+    lock()
+
+    try do
+      fun.()
+    after
+      unlock()
+    end
+  end
+
+  defp lock() do
+    try do
+      :erlang.register(@lock_name, self())
+      :ok
+    rescue
+      _ ->
+        Process.sleep(1)
+        lock()
+    end
+  end
+
+  defp unlock() do
+    case :erlang.whereis(@lock_name) do
+      pid when pid == self() -> _ = :erlang.unregister(@lock_name)
+      _ -> :ok
+    end
+
+    :ok
+  end
 
   # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -68,7 +101,6 @@ defmodule SampleApp.TFT do
     send_command(spi, @cmd_dispon)
     Process.sleep(20)
 
-    # quick “alive” blink
     send_command(spi, @cmd_invon)
     Process.sleep(120)
     send_command(spi, @cmd_invoff)
@@ -84,31 +116,30 @@ defmodule SampleApp.TFT do
     :ok
   end
 
-  # Convert 8-bit/channel to RGB666 bytes (panel ignores low 2 bits)
   def rgb888_to_rgb666(r8, g8, b8), do: {r8 &&& 0xFC, g8 &&& 0xFC, b8 &&& 0xFC}
 
-  # Solid fill via single RAMWR + chunked payloads
   def fill_rect_rgb666(spi, {x, y}, {w, h}, {r, g, b}) do
-    set_window(spi, {x, y}, {x + w - 1, y + h - 1})
+    with_lock(fn ->
+      set_window(spi, {x, y}, {x + w - 1, y + h - 1})
 
-    total_px = w * h
-    chunk_px = @spi_chunk_px
-    chunk = :binary.copy(<<r, g, b>>, chunk_px)
+      total_px = w * h
+      chunk_px = @spi_chunk_px
+      chunk = :binary.copy(<<r, g, b>>, chunk_px)
 
-    begin_ram_write(spi)
+      begin_ram_write(spi)
 
-    full = div(total_px, chunk_px)
-    remp = rem(total_px, chunk_px)
+      full = div(total_px, chunk_px)
+      remp = rem(total_px, chunk_px)
 
-    for _ <- 1..full, do: :ok = :spi.write(spi, @spi_dev, %{write_data: chunk})
+      for _ <- 1..full, do: :ok = :spi.write(spi, @spi_dev, %{write_data: chunk})
 
-    if remp > 0,
-      do: :ok = :spi.write(spi, @spi_dev, %{write_data: :binary.copy(<<r, g, b>>, remp)})
+      if remp > 0,
+        do: :ok = :spi.write(spi, @spi_dev, %{write_data: :binary.copy(<<r, g, b>>, remp)})
 
-    :ok
+      :ok
+    end)
   end
 
-  # Address window (CASET/PASET)
   def set_window(spi, {x0, y0}, {x1, y1}) do
     send_command(spi, @cmd_caset)
     send_data(spi, <<x0::16-big, x1::16-big>>)
@@ -117,29 +148,26 @@ defmodule SampleApp.TFT do
     :ok
   end
 
-  # One-time RAM write start, keep D/C = data for streaming
   def begin_ram_write(spi) do
     send_command(spi, @cmd_ramwr)
     set_dc_for_data()
     :ok
   end
 
-  @doc """
-  Safely write a large binary to the TFT by splitting into chunks
-  (<= `max_chunk_bytes/0`) and streaming over SPI.
-  """
   def spi_write_chunks(spi, bin) when is_binary(bin) do
     write_loop(spi, bin, @max_chunk_bytes)
   end
 
   def clear_screen(spi, {r, g, b}) do
-    w = width()
-    h = height()
-    set_window(spi, {0, 0}, {w - 1, h - 1})
-    begin_ram_write(spi)
-    line = :binary.copy(<<r, g, b>>, w)
-    for _ <- 1..h, do: spi_write_chunks(spi, line)
-    :ok
+    with_lock(fn ->
+      w = width()
+      h = height()
+      set_window(spi, {0, 0}, {w - 1, h - 1})
+      begin_ram_write(spi)
+      line = :binary.copy(<<r, g, b>>, w)
+      for _ <- 1..h, do: spi_write_chunks(spi, line)
+      :ok
+    end)
   end
 
   # ── Low-level ────────────────────────────────────────────────────────────────

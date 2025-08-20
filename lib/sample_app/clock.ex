@@ -8,7 +8,6 @@ defmodule SampleApp.Clock do
   alias SampleApp.TFT
   alias SampleApp.Font
 
-  # style / layout
   @scale_x 3
   @scale_y 4
   @gap_x 4
@@ -17,7 +16,6 @@ defmodule SampleApp.Clock do
   @bg {0x10, 0x10, 0x10}
   @fg {0xF8, 0xF8, 0xF8}
 
-  # API
   def start_link(spi, opts \\ []) do
     pid = spawn_link(fn -> init(spi, opts) end)
     {:ok, pid}
@@ -84,8 +82,6 @@ defmodule SampleApp.Clock do
     end
   end
 
-  # positioning ---------------------------------------------------------------
-
   defp resolve_origin(opts, cell_w, cell_h) do
     sw = TFT.width()
     sh = TFT.height()
@@ -127,8 +123,6 @@ defmodule SampleApp.Clock do
   defp clamp(v, min, max) when v > max, do: max
   defp clamp(v, _min, _max), do: v
 
-  # timing --------------------------------------------------------------------
-
   defp arm_next_half_tick() do
     now_us = :erlang.monotonic_time(:microsecond)
     tick_us = 500_000
@@ -136,8 +130,6 @@ defmodule SampleApp.Clock do
     delay_ms = div(next_edge - now_us + 999, 1000)
     :erlang.send_after(delay_ms, self(), :tick)
   end
-
-  # rendering -----------------------------------------------------------------
 
   defp clear_cells(spi, x0, y0, cw, ch) do
     sw = TFT.width()
@@ -162,11 +154,12 @@ defmodule SampleApp.Clock do
     width_pixels = right - left + 1
     rows = bottom - top + 1
 
-    TFT.set_window(spi, {left, top}, {right, bottom})
-    TFT.begin_ram_write(spi)
-
-    line = :binary.copy(rgb(@bg), width_pixels)
-    push_rows(spi, line, rows)
+    TFT.with_lock(fn ->
+      TFT.set_window(spi, {left, top}, {right, bottom})
+      TFT.begin_ram_write(spi)
+      line = :binary.copy(rgb(@bg), width_pixels)
+      push_rows(spi, line, rows)
+    end)
   end
 
   defp draw_changed_cells(spi, x0, y0, cw, ch, glyphs, prev_chars, new_chars) do
@@ -178,11 +171,12 @@ defmodule SampleApp.Clock do
         x = x0 + idx * (cw + @gap_x)
         y = y0
 
-        TFT.set_window(spi, {x, y}, {x + cw - 1, y + ch - 1})
-        TFT.begin_ram_write(spi)
-
-        bin = glyph_bin(glyphs, curr_ch)
-        TFT.spi_write_chunks(spi, bin)
+        TFT.with_lock(fn ->
+          TFT.set_window(spi, {x, y}, {x + cw - 1, y + ch - 1})
+          TFT.begin_ram_write(spi)
+          bin = glyph_bin(glyphs, curr_ch)
+          TFT.spi_write_chunks(spi, bin)
+        end)
       end
     end
 
@@ -210,8 +204,6 @@ defmodule SampleApp.Clock do
 
   defp pad2(n) when n < 10, do: <<?0, ?0 + n>>
   defp pad2(n), do: Integer.to_string(n)
-
-  # glyph prerendering ---------------------------------------------------------
 
   defp pre_render_glyphs(cell_w, cell_h) do
     g0 = render_cell_centered(?0, cell_w, cell_h, @fg, @bg)
@@ -299,8 +291,6 @@ defmodule SampleApp.Clock do
     vseg = :binary.copy(full, scale_y)
     build_cell(rest, left_pad, right_pad, scale_y, [vseg | acc])
   end
-
-  # SPI chunked writes --------------------------------------------------------
 
   defp push_rows(_spi, _line, n) when n <= 0, do: :ok
 
