@@ -29,7 +29,7 @@ defmodule SampleApp.MixProject do
   def atomvm do
     [
       start: SampleApp,
-      flash_offset: 0x210000
+      flash_offset: 0x250000
     ]
   end
 end
